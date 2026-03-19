@@ -1,0 +1,15 @@
+{
+  "name": "@codaloop/runtime",
+  "version": "0.1.1",
+  "license": "MIT",
+  "exports": "./mod.ts",
+  "tasks": {
+    "build": "deno run -A build.ts",
+    "build:npm": "deno run -A build_npm.ts",
+    "publish:jsr": "deno publish",
+    "publish:npm": "deno task build:npm && cd npm && npm publish --access public"
+  },
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
+  }
+}

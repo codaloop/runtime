@@ -1,0 +1,117 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    name: Publish @codaloop/runtime
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # Required for JSR OIDC auth
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Skip commits that are themselves version bumps to prevent infinite loops
+      - name: Guard against version-bump commits
+        id: guard
+        run: |
+          if git log -1 --pretty=%s | grep -qF '[runtime-release]'; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Determine bump type from conventional commit prefix:
+      #   type!: or BREAKING CHANGE: in body → major
+      #   feat:                               → minor
+      #   anything else                       → patch
+      - name: Determine semver bump
+        if: steps.guard.outputs.skip == 'false'
+        id: bump
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          if echo "$MSG" | grep -qE '^[a-z]+(\([^)]*\))?!:' || echo "$MSG" | grep -qF 'BREAKING CHANGE:'; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif echo "$MSG" | grep -qE '^feat(\([^)]*\))?:'; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          else
+            echo "type=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Bump version in deno.json
+        if: steps.guard.outputs.skip == 'false'
+        id: ver
+        run: |
+          CUR=$(jq -r '.version' deno.json)
+          IFS='.' read -r MAJ MIN PAT <<< "$CUR"
+          case "${{ steps.bump.outputs.type }}" in
+            major) NEXT="$((MAJ+1)).0.0" ;;
+            minor) NEXT="${MAJ}.$((MIN+1)).0" ;;
+            *)     NEXT="${MAJ}.${MIN}.$((PAT+1))" ;;
+          esac
+          jq --arg v "$NEXT" '.version = $v' deno.json > /tmp/deno.json
+          mv /tmp/deno.json deno.json
+          echo "next=$NEXT" >> $GITHUB_OUTPUT
+          echo "Bumped: $CUR → $NEXT (${{ steps.bump.outputs.type }})"
+
+      # Build the IIFE bundle (codaloop.js) — uploaded as a release asset
+      - name: Build IIFE bundle
+        if: steps.guard.outputs.skip == 'false'
+        run: deno task build
+
+      # Publish TypeScript source to JSR (authenticates via OIDC — no secret needed,
+      # but the package must be linked to this repo at jsr.io)
+      - name: Publish to JSR
+        if: steps.guard.outputs.skip == 'false'
+        run: deno publish --allow-dirty
+
+      # Build the npm-compatible CJS/ESM output
+      - name: Build npm package
+        if: steps.guard.outputs.skip == 'false'
+        run: deno task build:npm
+
+      # Publish to npm — requires NPM_TOKEN secret
+      - name: Publish to npm
+        if: steps.guard.outputs.skip == 'false'
+        run: cd npm && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Commit the bumped deno.json back to main
+      - name: Commit version bump
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deno.json
+          git commit -m "chore: bump to ${{ steps.ver.outputs.next }} [runtime-release]"
+          git push origin main
+
+      # Create a GitHub Release and upload codaloop.js as an asset
+      # The app repo downloads this asset via `deno task update:runtime`
+      - name: Create GitHub Release
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.ver.outputs.next }}" \
+            --title "@codaloop/runtime v${{ steps.ver.outputs.next }}" \
+            --notes "**${{ steps.bump.outputs.type }} release**" \
+            --target main \
+            codaloop.js
