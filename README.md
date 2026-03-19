@@ -1,60 +1,61 @@
-# @glitchlab/runtime
+# @codaloop/runtime
 
 A simplified game programming API for kids — Canvas drawing, sprites, sound, and
 a 60fps game loop. Think Processing/p5.js but simpler.
 
-Built for [Glitchlab](https://glitchlabs.deno.dev), a zero-friction
+Built for [Codaloop](https://codaloop.com), a zero-friction
 browser-based game programming environment for classrooms.
 
 ## Install
 
 ```bash
 # npm
-npm install @glitchlab/runtime
+npm install @codaloop/runtime
 
 # Deno / JSR
-deno add jsr:@glitchlab/runtime
+deno add jsr:@codaloop/runtime
 ```
 
 ## Quick Start
 
 ```typescript
-import { createRuntime } from "@glitchlab/runtime";
+import { createRuntime } from "@codaloop/runtime";
 
-const gl = createRuntime();
-
-gl.size(400, 400);
-gl.background("white");
-gl.fill("red");
-gl.circle(200, 200, 50);
+const runtime = createRuntime();
 
 // Game loop
-gl.start({
+runtime.start({
   setup() {
-    gl.size(400, 400);
+    size(400, 400);
   },
   draw() {
-    gl.background("skyblue");
-    gl.fill("yellow");
-    gl.circle(gl.mouseX, gl.mouseY, 30);
+    background("skyblue");
+    fill("yellow");
+    circle(mouseX, mouseY, 30);
+  },
+  keyPressed() {
+    if (key === " ") playSound("jump");
   },
 });
 ```
 
-## Browser (Script Tag)
+## Browser (IIFE)
+
+The browser bundle reads user code from a `__CODALOOP_CODE__` global, which is
+useful for sandboxed iframe environments:
 
 ```html
-<script src="https://esm.sh/@glitchlab/runtime/browser"></script>
-<script type="text/javascript">
-  function setup() {
-    size(400, 400);
-  }
+<script src="codaloop.js"></script>
+<script>
+  window.__CODALOOP_CODE__ = `
+    function setup() { size(400, 400); }
 
-  function draw() {
-    background("white");
-    fill("red");
-    circle(mouseX, mouseY, 30);
-  }
+    function draw() {
+      background("white");
+      fill("red");
+      circle(mouseX, mouseY, 30);
+    }
+  `;
 </script>
 ```
 
@@ -83,6 +84,8 @@ gl.start({
 - `strokeWeight(n)` — Outline thickness
 - `textSize(n)` / `textAlign(align)` — Text styling
 - `color(r, g, b, a?)` — Create RGBA color
+- `push()` / `pop()` — Save/restore drawing state + transforms
+- `translate(x, y)` / `rotate(angle)` — Transform (degrees)
 
 ### Input
 
@@ -96,14 +99,27 @@ gl.start({
 
 - `createSprite(x, y, w, h)` — Create a sprite
 - `drawSprite(s)` / `moveSprite(s)` — Draw/move
-- `collides(a, b)` — AABB collision
-- `applyGravity(s)` / `bounceEdges(s)` — Physics helpers
+- `collides(a, b)` — AABB collision between two sprites
+- `overlap(s, x, y)` — Check if a point is inside a sprite
+- `applyGravity(s, amount?)` / `bounceEdges(s)` — Physics helpers
 
 ### Pixel Art
 
-- `createImage(rows, colorMap)` — Create from string art
+- `createImage(rows, colorMap)` — Create from string art (`.` or space = transparent)
 - `drawImage(img, x, y, scale?)` — Draw pixel image
 - `getImage(name, colors?)` — Get built-in sprite
+
+```typescript
+const ship = createImage(
+  [
+    "..R..",
+    ".RRR.",
+    "RRRRR",
+  ],
+  { R: "red" }
+);
+drawImage(ship, 100, 100, 3);
+```
 
 ### Sound
 
@@ -122,10 +138,17 @@ gl.start({
 - `map(val, fromLo, fromHi, toLo, toHi)` — Remap
 - `lerp(a, b, t)` — Linear interpolation
 
-### State
+### Developer Tools
 
-- `push()` / `pop()` — Save/restore drawing state + transforms
-- `translate(x, y)` / `rotate(angle)` — Transform (degrees)
+- `gridHelper(opts?)` — Overlay a coordinate grid with a pinnable crosshair
+
+## Building
+
+```bash
+deno task build       # IIFE browser bundle → codaloop.js
+deno task build:npm   # npm package → npm/
+deno task publish:jsr # publish to JSR
+```
 
 ## License
 
